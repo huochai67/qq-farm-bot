@@ -15,6 +15,11 @@ message Item {
     // ItemShow show = 100;  // 展示信息 (略)
 }
 
+// 背包（物品列表）
+message ItemBag {
+    repeated Item items = 1;
+}
+
 // ============ 物品变化 ============
 message ItemChg {
     Item item = 1;          // 物品信息

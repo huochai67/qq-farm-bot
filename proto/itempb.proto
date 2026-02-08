@@ -10,7 +10,7 @@ import "corepb.proto";
 message BagRequest {}
 
 message BagReply {
-    repeated corepb.Item items = 1;
+    corepb.ItemBag item_bag = 1;  // 与 game 一致，背包数据在 item_bag 里
 }
 
 // ============ 出售物品 ============

@@ -1,5 +1,6 @@
 /**
  * 仓库系统 - 自动出售果实
+ * 协议说明：BagReply 使用 item_bag（ItemBag），item_bag.items 才是背包物品列表
  */
 
 const { types } = require('./proto');
@@ -7,16 +8,15 @@ const { sendMsgAsync } = require('./network');
 const { toLong, toNum, log, logWarn, sleep } = require('./utils');
 const { getFruitName } = require('./gameConfig');
 
-// ============ 物品类型 ============
-// 果实 ID 范围: 40001-49999 (根据 Plant.json 配置)
-const FRUIT_ID_MIN = 40001;
+// 果实 ID 范围：Plant.json 中 fruit.id 为 4xxxx；部分接口可能用 3xxx，两段都视为果实
+const FRUIT_ID_MIN = 3001;
 const FRUIT_ID_MAX = 49999;
 
-// ============ 内部状态 ============
-let sellTimer = null;
-let sellInterval = 60000;  // 默认1分钟
+// 单次 Sell 请求最多条数，过多可能触发 1000020 参数错误
+const SELL_BATCH_SIZE = 15;
 
-// ============ API ============
+let sellTimer = null;
+let sellInterval = 60000;
 
 async function getBag() {
     const body = types.BagRequest.encode(types.BagRequest.create({})).finish();
@@ -24,64 +24,70 @@ async function getBag() {
     return types.BagReply.decode(replyBody);
 }
 
+/**
+ * 将 item 转为 Sell 请求所需格式（id/count/uid 保留 Long 或转成 Long，与游戏一致）
+ */
+function toSellItem(item) {
+    const id = item.id != null ? toLong(item.id) : undefined;
+    const count = item.count != null ? toLong(item.count) : undefined;
+    const uid = item.uid != null ? toLong(item.uid) : undefined;
+    return { id, count, uid };
+}
+
 async function sellItems(items) {
-    const body = types.SellRequest.encode(types.SellRequest.create({
-        items: items.map(item => ({
-            id: toLong(item.id),
-            count: toLong(item.count),
-        })),
-    })).finish();
+    const payload = items.map(toSellItem);
+    const body = types.SellRequest.encode(types.SellRequest.create({ items: payload })).finish();
     const { body: replyBody } = await sendMsgAsync('gamepb.itempb.ItemService', 'Sell', body);
     return types.SellReply.decode(replyBody);
 }
 
-// ============ 出售逻辑 ============
-
 /**
- * 检查并出售所有果实
+ * 从 BagReply 取出物品列表（兼容 item_bag 与旧版 items）
  */
+function getBagItems(bagReply) {
+    if (bagReply.item_bag && bagReply.item_bag.items && bagReply.item_bag.items.length)
+        return bagReply.item_bag.items;
+    return bagReply.items || [];
+}
+
 async function sellAllFruits() {
     try {
         const bagReply = await getBag();
-        const items = bagReply.items || [];
+        const items = getBagItems(bagReply);
 
-        // 筛选出果实
-        const fruits = [];
+        const toSell = [];
+        const names = [];
         for (const item of items) {
             const id = toNum(item.id);
             const count = toNum(item.count);
             if (id >= FRUIT_ID_MIN && id <= FRUIT_ID_MAX && count > 0) {
-                const name = getFruitName(id);
-                fruits.push({ id, count, name });
+                toSell.push(item);
+                names.push(`${getFruitName(id)}x${count}`);
             }
         }
 
-        if (fruits.length === 0) {
-            // 没有果实可出售
-            return;
+        if (toSell.length === 0) return;
+
+        let totalGold = 0;
+        for (let i = 0; i < toSell.length; i += SELL_BATCH_SIZE) {
+            const batch = toSell.slice(i, i + SELL_BATCH_SIZE);
+            const reply = await sellItems(batch);
+            totalGold += toNum(reply.gold || 0);
+            if (i + SELL_BATCH_SIZE < toSell.length) await sleep(300);
         }
-
-        // 批量出售
-        const sellReply = await sellItems(fruits);
-        const gold = toNum(sellReply.gold);
-
-        // 汇总日志 - 显示果实名称
-        const fruitNames = fruits.map(f => `${f.name}x${f.count}`).join(', ');
-        log('仓库', `出售 ${fruitNames}，获得 ${gold} 金币`);
+        log('仓库', `出售 ${names.join(', ')}，获得 ${totalGold} 金币`);
     } catch (e) {
         logWarn('仓库', `出售失败: ${e.message}`);
     }
 }
 
-// 手动触发一次出售（用于调试）
 async function debugSellFruits() {
     try {
         log('仓库', '正在检查背包...');
         const bagReply = await getBag();
-        const items = bagReply.items || [];
+        const items = getBagItems(bagReply);
         log('仓库', `背包共 ${items.length} 种物品`);
 
-        // 显示所有物品
         for (const item of items) {
             const id = toNum(item.id);
             const count = toNum(item.count);
@@ -92,39 +98,39 @@ async function debugSellFruits() {
             }
         }
 
-        // 筛选出果实
-        const fruits = [];
+        const toSell = [];
         for (const item of items) {
             const id = toNum(item.id);
             const count = toNum(item.count);
-            if (id >= FRUIT_ID_MIN && id <= FRUIT_ID_MAX && count > 0) {
-                const name = getFruitName(id);
-                fruits.push({ id, count, name });
-            }
+            if (id >= FRUIT_ID_MIN && id <= FRUIT_ID_MAX && count > 0)
+                toSell.push(item);
         }
 
-        if (fruits.length === 0) {
+        if (toSell.length === 0) {
             log('仓库', '没有果实可出售');
             return;
         }
 
-        log('仓库', `准备出售 ${fruits.length} 种果实...`);
-        const sellReply = await sellItems(fruits);
-        const gold = toNum(sellReply.gold);
-        log('仓库', `出售成功，获得 ${gold} 金币`);
+        log('仓库', `准备出售 ${toSell.length} 种果实，每批 ${SELL_BATCH_SIZE} 条...`);
+        let totalGold = 0;
+        for (let i = 0; i < toSell.length; i += SELL_BATCH_SIZE) {
+            const batch = toSell.slice(i, i + SELL_BATCH_SIZE);
+            const reply = await sellItems(batch);
+            const g = toNum(reply.gold || 0);
+            totalGold += g;
+            log('仓库', `  第 ${Math.floor(i / SELL_BATCH_SIZE) + 1} 批: 获得 ${g} 金币`);
+            if (i + SELL_BATCH_SIZE < toSell.length) await sleep(300);
+        }
+        log('仓库', `出售完成，共获得 ${totalGold} 金币`);
     } catch (e) {
         logWarn('仓库', `调试出售失败: ${e.message}`);
         console.error(e);
     }
 }
 
-// ============ 定时任务 ============
-
 function startSellLoop(interval = 60000) {
     if (sellTimer) return;
     sellInterval = interval;
-
-    // 启动后延迟 10 秒执行第一次
     setTimeout(() => {
         sellAllFruits();
         sellTimer = setInterval(() => sellAllFruits(), sellInterval);
@@ -143,6 +149,7 @@ module.exports = {
     sellItems,
     sellAllFruits,
     debugSellFruits,
+    getBagItems,
     startSellLoop,
     stopSellLoop,
 };

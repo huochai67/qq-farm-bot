@@ -349,7 +349,7 @@ function analyzeLands(lands) {
     };
 
     const nowSec = getServerTimeSec();
-    const debug = isFirstFarmCheck;
+    const debug = false;
 
     if (debug) {
         console.log('');
