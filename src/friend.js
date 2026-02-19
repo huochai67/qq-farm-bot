@@ -41,9 +41,6 @@ const OP_NAMES = {
 // 配置: 是否只在有经验时才帮助好友  
 const HELP_ONLY_WITH_EXP = true; // 已更新可用
 
-// 配置: 是否启用放虫放草功能
-const ENABLE_PUT_BAD_THINGS = false;  // 无效！！！开启后会多次访问朋友导致被拉黑 请勿更改暂时关闭放虫放草功能
-
 // ============ 好友 API ============
 
 async function getAllFriends() {
@@ -418,7 +415,8 @@ async function visitFriend(friend, totalActions, myGid) {
         }
     }
 
-    if (status.needBug.length > 0) {
+    // 除虫操作
+    if (status.needBug.length > 0 && CONFIG.friendOptions.bug) {
         const shouldHelp = !HELP_ONLY_WITH_EXP || canGetExp(10006);  // 10006=除虫
         if (shouldHelp) {
             markExpCheck(10006);
@@ -431,7 +429,8 @@ async function visitFriend(friend, totalActions, myGid) {
         }
     }
 
-    if (status.needWater.length > 0) {
+    // 浇水操作
+    if (status.needWater.length > 0 && CONFIG.friendOptions.water) {
         const shouldHelp = !HELP_ONLY_WITH_EXP || canGetExp(10007);  // 10007=浇水
         if (shouldHelp) {
             markExpCheck(10007);
@@ -444,8 +443,8 @@ async function visitFriend(friend, totalActions, myGid) {
         }
     }
 
-    // 偷菜: 始终执行
-    if (status.stealable.length > 0) {
+    // 偷菜
+    if (status.stealable.length > 0 && CONFIG.friendOptions.steal) {
         let ok = 0;
         const stolenPlants = [];
         for (let i = 0; i < status.stealable.length; i++) {
@@ -467,7 +466,7 @@ async function visitFriend(friend, totalActions, myGid) {
     }
 
     // 捣乱操作: 放虫(10004)/放草(10003)
-    if (ENABLE_PUT_BAD_THINGS && status.canPutBug.length > 0 && canOperate(10004)) {
+    if (CONFIG.ENABLE_PUT_BAD_THINGS && status.canPutBug.length > 0 && CONFIG.friendOptions.putBug && canOperate(10004)) {
         let ok = 0;
         const remaining = getRemainingTimes(10004);
         const toProcess = status.canPutBug.slice(0, remaining);
@@ -479,7 +478,7 @@ async function visitFriend(friend, totalActions, myGid) {
         if (ok > 0) { actions.push(`放虫${ok}`); totalActions.putBug += ok; }
     }
 
-    if (ENABLE_PUT_BAD_THINGS && status.canPutWeed.length > 0 && canOperate(10003)) {
+    if (CONFIG.ENABLE_PUT_BAD_THINGS && status.canPutWeed.length > 0 && CONFIG.friendOptions.putWeed && canOperate(10003)) {
         let ok = 0;
         const remaining = getRemainingTimes(10003);
         const toProcess = status.canPutWeed.slice(0, remaining);
@@ -554,7 +553,7 @@ async function checkFriends() {
                 // 只有帮助项且还能获得经验时才加入
                 priorityFriends.push({ gid, name, level: toNum(f.level), hasSteal: false, hasHelp: true });
                 visitedGids.add(gid);
-            } else if (ENABLE_PUT_BAD_THINGS && canPutBugOrWeed) {
+            } else if (CONFIG.ENABLE_PUT_BAD_THINGS && canPutBugOrWeed) {
                 // 没有预览信息但可以放虫放草（仅在开启放虫放草功能时）
                 otherFriends.push({ gid, name, level: toNum(f.level), hasSteal: false, hasHelp: false });
                 visitedGids.add(gid);

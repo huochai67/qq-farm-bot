@@ -11,13 +11,22 @@ const CONFIG = {
     farmCheckInterval: 1000,    // 自己农场巡查完成后等待间隔 (可通过 --interval 修改, 最低1秒)
     friendCheckInterval: 10000,   // 好友巡查完成后等待间隔 (可通过 --friend-interval 修改, 最低1秒)
     forceLowestLevelCrop: false,  // 开启后固定种最低等级作物（通常是白萝卜），跳过经验效率分析
+    friendOptions: {
+        steal: true,      // 偷菜 (10008)
+        water: false,      // 浇水 (10007)
+        weed: false,       // 除草 (10005)
+        bug: false,        // 除虫 (10006)
+        ENABLE_PUT_BAD_THINGS: false, //是否启用放虫放草功能
+        putWeed: false,   // 放草 (10003)
+        putBug: false,    // 放虫 (10004)
+    },
     device_info: {
         client_version: "1.6.0.14_20251224",
         sys_software: 'iOS 26.2.1',
         network: 'wifi',
         memory: '7672',
         device_id: 'iPhone X<iPhone18,3>',
-    }
+    },
 };
 
 // 运行期提示文案（做了简单编码，避免明文散落）
