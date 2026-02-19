@@ -219,7 +219,7 @@ async function findBestSeed(landsCount) {
 
         const rec = getPlantingRecommendation(state.level, landsCount == null ? 18 : landsCount, { top: 50 });
 
-        const rankedSeedIds = []
+        let rankedSeedIds = []
         if (CONFIG.useFertilize) {
             rankedSeedIds = rec.candidatesNormalFert.map(x => x.seedId);
         } else {
