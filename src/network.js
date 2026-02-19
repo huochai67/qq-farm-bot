@@ -309,7 +309,7 @@ function handleNotify(msg) {
 }
 
 // ============ 登录 ============
-function sendLogin(onLoginSuccess) {
+function sendLogin(onLoginSuccess, onLoginError) {
     const body = types.LoginRequest.encode(types.LoginRequest.create({
         sharer_id: toLong(0),
         sharer_open_id: '',
@@ -325,6 +325,7 @@ function sendLogin(onLoginSuccess) {
     sendMsg('gamepb.userpb.UserService', 'Login', body, (err, bodyBytes, meta) => {
         if (err) {
             log('登录', `失败: ${err.message}`);
+            if (onLoginError) onLoginError(err);
             return;
         }
         try {
@@ -362,6 +363,7 @@ function sendLogin(onLoginSuccess) {
             if (onLoginSuccess) onLoginSuccess();
         } catch (e) {
             log('登录', `解码失败: ${e.message}`);
+            if (onLoginError) onLoginError(e);
         }
     });
 }
@@ -410,7 +412,7 @@ function startHeartbeat() {
 }
 
 // ============ WebSocket 连接 ============
-function connect(code, onLoginSuccess) {
+function connect(code, onLoginSuccess, onLoginError) {
     const url = `${CONFIG.serverUrl}?platform=${CONFIG.platform}&os=${CONFIG.os}&ver=${CONFIG.clientVersion}&code=${code}&openID=`;
 
     ws = new WebSocket(url, {
@@ -423,7 +425,7 @@ function connect(code, onLoginSuccess) {
     ws.binaryType = 'arraybuffer';
 
     ws.on('open', () => {
-        sendLogin(onLoginSuccess);
+        sendLogin(onLoginSuccess, onLoginError);
     });
 
     ws.on('message', (data) => {
@@ -437,6 +439,7 @@ function connect(code, onLoginSuccess) {
 
     ws.on('error', (err) => {
         logWarn('WS', `错误: ${err.message}`);
+        if (onLoginError) onLoginError(err);
     });
 }
 

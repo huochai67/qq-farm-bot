@@ -2,13 +2,14 @@
  * QQ经典农场 挂机脚本 - 入口文件
  *
  * 模块结构:
- *   src/config.js   - 配置常量与枚举
- *   src/utils.js    - 通用工具函数
- *   src/proto.js    - Protobuf 加载与类型管理
- *   src/network.js  - WebSocket 连接/消息编解码/登录/心跳
- *   src/farm.js     - 自己农场操作与巡田循环
- *   src/friend.js   - 好友农场操作与巡查循环
- *   src/decode.js   - PB解码/验证工具模式
+ *   src/config.js       - 配置常量与枚举
+ *   src/utils.js        - 通用工具函数
+ *   src/proto.js        - Protobuf 加载与类型管理
+ *   src/network.js      - WebSocket 连接/消息编解码/登录/心跳
+ *   src/codeManager.js  - Code 本地保存/读取/删除
+ *   src/farm.js         - 自己农场操作与巡田循环
+ *   src/friend.js       - 好友农场操作与巡查循环
+ *   src/decode.js       - PB解码/验证工具模式
  */
 
 const { CONFIG } = require('./src/config');
@@ -24,6 +25,7 @@ const { verifyMode, decodeMode } = require('./src/decode');
 const { emitRuntimeHint, sleep } = require('./src/utils');
 const { getQQFarmCodeByScan } = require('./src/qqQrLogin');
 const { initFileLogger } = require('./src/logger');
+const { saveCode, loadCode, deleteCode } = require('./src/codeManager');
 
 initFileLogger();
 
@@ -65,10 +67,15 @@ QQ经典农场 挂机脚本
   - 每分钟自动出售仓库果实
   - 启动时读取 share.txt 处理邀请码 (仅微信)
   - 心跳保活
+  - 自动保存登录code: 扫码成功后自动保存到本地
+  - 优先使用旧code登录: 下次启动时若无 --code 参数会优先尝试使用保存的旧code，失败后自动重新扫码
 
 邀请码文件 (share.txt):
   每行一个邀请链接，格式: ?uid=xxx&openid=xxx&share_source=xxx&doc_id=xxx
   启动时会尝试通过 SyncAll API 同步这些好友
+
+本地文件 (.farmcode):
+  自动保存的登录code，程序会使用此文件优先登录而无需重复扫码
 
 示例:
   # 通过命令行参数启动
@@ -79,6 +86,9 @@ QQ经典农场 挂机脚本
 
   # 混合用法 (命令行参数优先)
   CODE=abc123 node client.js --interval 20
+
+  # QQ平台扫码登录，code自动保存，下次无需传参
+  node client.js
 `);
 }
 
@@ -187,12 +197,24 @@ async function main() {
     const argsMap = getArgsMap(args);
     const options = parseArgs(argsMap);
 
-    // QQ 平台支持扫码登录: 显式 --qr，或未传 --code 时自动触发
+    // 尝试使用已保存的 code，如果没有传入 --code 参数
+    if (!options.code && CONFIG.platform === 'qq') {
+        const savedCode = loadCode();
+        if (savedCode) {
+            console.log('[Code管理] 检测到已保存的code，将优先尝试使用旧code登录');
+            options.code = savedCode;
+            options.useSavedCode = true;
+        }
+    }
+
+    // 如果仍然没有 code，尝试使用扫码登录
     if (!options.code && CONFIG.platform === 'qq' && (options.qrLogin || !args.includes('--code'))) {
         console.log('[扫码登录] 正在获取二维码...');
         options.code = await getQQFarmCodeByScan();
         usedQrLogin = true;
         console.log(`[扫码登录] 获取成功，code=${options.code.substring(0, 8)}...`);
+        // 保存新扫描得到的 code
+        saveCode(options.code);
     }
 
     if (!options.code) {
@@ -222,7 +244,13 @@ async function main() {
     console.log(`[启动] ${platformName} code=${options.code.substring(0, 8)}... 农场${CONFIG.farmCheckInterval / 1000}s 好友${CONFIG.friendCheckInterval / 1000}s`);
 
     // 连接并登录，登录成功后启动各功能模块
-    connect(options.code, async () => {
+    let loginAttemptCount = 0;
+    const onLoginSuccess = async () => {
+        // 登录成功，保存 code
+        if (options.useSavedCode) {
+            // 旧 code 仍然有效，保留即可
+        }
+        
         // 处理邀请码 (仅微信环境)
         await processInviteCodes();
         
@@ -233,7 +261,49 @@ async function main() {
         // 启动时立即检查一次背包
         setTimeout(() => debugSellFruits(), 5000);
         startSellLoop(60000);  // 每分钟自动出售仓库果实
-    });
+    };
+
+    const onLoginError = async (err) => {
+        loginAttemptCount++;
+        console.log(`[登录] 失败: ${err.message}`);
+        
+        // 如果是使用旧 code 登录失败，删除旧 code 并重新扫码
+        if (options.useSavedCode && loginAttemptCount === 1) {
+            console.log('[Code管理] 旧code已失效，正在删除...');
+            deleteCode();
+            
+            // 等待一下之前的连接完全关闭
+            await sleep(1000);
+            
+            if (CONFIG.platform === 'qq') {
+                console.log('[扫码登录] 正在重新获取二维码...');
+                try {
+                    options.code = await getQQFarmCodeByScan();
+                    console.log(`[扫码登录] 获取成功，code=${options.code.substring(0, 8)}...`);
+                    saveCode(options.code);
+                    options.useSavedCode = false;
+                    
+                    // 清屏
+                    if (process.stdout.isTTY) {
+                        process.stdout.write('\x1b[2J\x1b[H');
+                    }
+                    
+                    // 重新连接
+                    console.log('[启动] QQ code=' + options.code.substring(0, 8) + '... 农场' + CONFIG.farmCheckInterval / 1000 + 's 好友' + CONFIG.friendCheckInterval / 1000 + 's');
+                    connect(options.code, onLoginSuccess, onLoginError);
+                } catch (scanErr) {
+                    console.error('[扫码登录] 失败:', scanErr.message);
+                    process.exit(1);
+                }
+            }
+        } else {
+            // 其他原因导致的登录失败，直接退出
+            console.log('[登录] 无法恢复，退出程序');
+            process.exit(1);
+        }
+    };
+
+    connect(options.code, onLoginSuccess, onLoginError);
 
     // 退出处理
     process.on('SIGINT', () => {
