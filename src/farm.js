@@ -216,9 +216,16 @@ async function findBestSeed(landsCount) {
 
     try {
         log('商店', `等级: ${state.level}，土地数量: ${landsCount}`);
-        
+
         const rec = getPlantingRecommendation(state.level, landsCount == null ? 18 : landsCount, { top: 50 });
-        const rankedSeedIds = rec.candidatesNormalFert.map(x => x.seedId);
+
+        const rankedSeedIds = []
+        if (CONFIG.useFertilize) {
+            rankedSeedIds = rec.candidatesNormalFert.map(x => x.seedId);
+        } else {
+            rankedSeedIds = rec.candidatesNoFert.map(x => x.seedId);
+        }
+
         for (const seedId of rankedSeedIds) {
             const hit = available.find(x => x.seedId === seedId);
             if (hit) return hit;
@@ -228,9 +235,9 @@ async function findBestSeed(landsCount) {
     }
 
     // 兜底：等级在28级以前还是白萝卜比较好，28级以上选最高等级的种子
-    if(state.level && state.level <= 28){
+    if (state.level && state.level <= 28) {
         available.sort((a, b) => a.requiredLevel - b.requiredLevel);
-    }else{
+    } else {
         available.sort((a, b) => b.requiredLevel - a.requiredLevel);
     }
     return available[0];
@@ -316,7 +323,7 @@ async function autoPlantEmptyLands(deadLandIds, emptyLandIds, unlockedLandCount)
     }
 
     // 5. 施肥（逐块拖动，间隔50ms）
-    if (plantedLands.length > 0) {
+    if (CONFIG.useFertilize && plantedLands.length > 0) {
         const fertilized = await fertilize(plantedLands);
         if (fertilized > 0) {
             log('施肥', `已为 ${fertilized}/${plantedLands.length} 块地施肥`);
@@ -398,7 +405,7 @@ function analyzeLands(lands) {
         const landLabel = `土地#${id}(${plantName})`;
 
         if (debug) {
-            console.log(`  ${landLabel}: phases=${plant.phases.length} dry_num=${toNum(plant.dry_num)} weed_owners=${(plant.weed_owners||[]).length} insect_owners=${(plant.insect_owners||[]).length}`);
+            console.log(`  ${landLabel}: phases=${plant.phases.length} dry_num=${toNum(plant.dry_num)} weed_owners=${(plant.weed_owners || []).length} insect_owners=${(plant.insect_owners || []).length}`);
         }
 
         const currentPhase = getCurrentPhase(plant.phases, debug, landLabel);
@@ -548,7 +555,7 @@ async function checkFarm() {
 
         // 输出一行日志
         const actionStr = actions.length > 0 ? ` → ${actions.join('/')}` : '';
-        if(hasWork) {
+        if (hasWork) {
             log('农场', `[${statusParts.join(' ')}]${actionStr}${!hasWork ? ' 无需操作' : ''}`)
         }
     } catch (err) {
@@ -588,10 +595,10 @@ function onLandsChangedPush(lands) {
     if (isCheckingFarm) return;
     const now = Date.now();
     if (now - lastPushTime < 500) return;  // 500ms 防抖
-    
+
     lastPushTime = now;
     log('农场', `收到推送: ${lands.length}块土地变化，检查中...`);
-    
+
     setTimeout(async () => {
         if (!isCheckingFarm) {
             await checkFarm();

@@ -10,6 +10,9 @@ const CONFIG = {
     heartbeatInterval: 25000,    // 心跳间隔 25秒
     farmCheckInterval: 1000,    // 自己农场巡查完成后等待间隔 (可通过 --interval 修改, 最低1秒)
     friendCheckInterval: 10000,   // 好友巡查完成后等待间隔 (可通过 --friend-interval 修改, 最低1秒)
+    useFertilize: true, // 使用化肥
+    useVipFertilize: true, // 使用有机化肥
+
     forceLowestLevelCrop: false,  // 开启后固定种最低等级作物（通常是白萝卜），跳过经验效率分析
     friendOptions: {
         steal: true,      // 偷菜 (10008)
