@@ -39,14 +39,22 @@ QQ经典农场 挂机脚本
   node client.js --verify
   node client.js --decode <数据> [--hex] [--gate] [--type <消息类型>]
 
-参数:
+命令行参数:
   --code              小程序 login() 返回的临时凭证 (必需)
   --qr                启动后使用QQ扫码获取登录code（仅QQ平台）
   --wx                使用微信登录 (默认为QQ小程序)
-  --interval          自己农场巡查完成后等待秒数, 默认10秒, 最低10秒
+  --qq                使用QQ登录 (默认值)
+  --interval          自己农场巡查完成后等待秒数, 默认10秒, 最低1秒
   --friend-interval   好友巡查完成后等待秒数, 默认1秒, 最低1秒
   --verify            验证proto定义
   --decode            解码PB数据 (运行 --decode 无参数查看详细帮助)
+
+环境变量 (优先级: 命令行参数 > 环境变量 > 默认值):
+  CODE                登录凭证，等同于 --code
+  PLATFORM            平台选择 'qq' 或 'wx'，等同于 --qq 或 --wx
+  QR_LOGIN            设为 'true' 启用扫码登录，等同于 --qr
+  INTERVAL            自己农场巡查间隔，等同于 --interval
+  FRIEND_INTERVAL     好友查巡间隔，等同于 --friend-interval
 
 功能:
   - 自动收获成熟作物 → 购买种子 → 种植 → 施肥
@@ -61,39 +69,97 @@ QQ经典农场 挂机脚本
 邀请码文件 (share.txt):
   每行一个邀请链接，格式: ?uid=xxx&openid=xxx&share_source=xxx&doc_id=xxx
   启动时会尝试通过 SyncAll API 同步这些好友
+
+示例:
+  # 通过命令行参数启动
+  node client.js --code abc123 --interval 15 --friend-interval 2
+
+  # 通过环境变量启动
+  CODE=abc123 INTERVAL=15 FRIEND_INTERVAL=2 node client.js
+
+  # 混合用法 (命令行参数优先)
+  CODE=abc123 node client.js --interval 20
 `);
 }
 
-// ============ 参数解析 ============
-function parseArgs(args) {
-    const options = {
-        code: '',
-        qrLogin: false,
-        deleteAccountMode: false,
-        name: '',
-        certId: '',
-        certType: 0,
-    };
+function getArgsMap(args) {
+    const map = new Map();
 
     for (let i = 0; i < args.length; i++) {
-        if (args[i] === '--code' && args[i + 1]) {
-            options.code = args[++i];
+        const key = args[i];
+        if (!key.startsWith('--')) {
+            map.set(key, true);
+            continue;
         }
-        if (args[i] === '--qr') {
-            options.qrLogin = true;
+
+        if (i >= (args.length - 1)) {
+            break;
         }
-        if (args[i] === '--wx') {
-            CONFIG.platform = 'wx';
+
+        const value = args[++i];
+        if (value === undefined || value.startsWith('--')) {
+            continue;
         }
-        if (args[i] === '--interval' && args[i + 1]) {
-            const sec = parseInt(args[++i]);
-            CONFIG.farmCheckInterval = Math.max(sec, 1) * 1000;
-        }
-        if (args[i] === '--friend-interval' && args[i + 1]) {
-            const sec = parseInt(args[++i]);
-            CONFIG.friendCheckInterval = Math.max(sec, 1) * 1000;  // 最低1秒
+
+        map.set(key, value);
+    }
+
+    return map;
+}
+
+function parseArgs(argsMap) {
+    // 优先级：命令行参数 > 环境变量 > 默认值
+    const options = {
+        code: '',
+        qrLogin: false
+    };
+
+    // 1. 首先从环境变量读取
+    if (process.env.CODE) {
+        options.code = process.env.CODE;
+    }
+    if (process.env.PLATFORM && ['qq', 'wx'].includes(process.env.PLATFORM)) {
+        CONFIG.platform = process.env.PLATFORM;
+    }
+    if (process.env.QR_LOGIN === 'true') {
+        options.qrLogin = true;
+    }
+
+    let interval = parseInt(process.env.INTERVAL) || 0;
+    let friend_interval = parseInt(process.env.FRIEND_INTERVAL) || 0;
+
+    // 2. 然后用命令行参数覆盖环境变量
+    for (const [key, value] of argsMap) {
+        switch (key) {
+            case '--code':
+                options.code = value;
+                break;
+            case '--qr':
+                options.qrLogin = value === true || value === 'true';
+                break;
+            case '--wx':
+                CONFIG.platform = 'wx';
+                break;
+            case '--qq':
+                CONFIG.platform = 'qq';
+                break;
+            case '--interval':
+                interval = parseInt(value);
+                break;
+            case '--friend-interval':
+                friend_interval = parseInt(value);
+                break;
         }
     }
+
+    if (interval) {
+        CONFIG.farmCheckInterval = Math.max(interval, 1) * 1000;
+    }
+
+    if (friend_interval) {
+        CONFIG.friendCheckInterval = Math.max(friend_interval, 1) * 1000;
+    }
+
     return options;
 }
 
@@ -118,7 +184,8 @@ async function main() {
     }
 
     // 正常挂机模式
-    const options = parseArgs(args);
+    const argsMap = getArgsMap(args);
+    const options = parseArgs(argsMap);
 
     // QQ 平台支持扫码登录: 显式 --qr，或未传 --code 时自动触发
     if (!options.code && CONFIG.platform === 'qq' && (options.qrLogin || !args.includes('--code'))) {
