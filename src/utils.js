@@ -4,6 +4,7 @@
 
 const Long = require('long');
 const { RUNTIME_HINT_MASK, RUNTIME_HINT_DATA } = require('./config');
+const { log, logWarn, logError, logDebug } = require('./logger');
 
 // ============ 服务器时间状态 ============
 let serverTimeMs = 0;
@@ -48,15 +49,6 @@ function toTimeSec(val) {
     return n;
 }
 
-// ============ 日志 ============
-function log(tag, msg) {
-    console.log(`[${now()}] [${tag}] ${msg}`);
-}
-
-function logWarn(tag, msg) {
-    console.log(`[${now()}] [${tag}] ⚠ ${msg}`);
-}
-
 // ============ 异步工具 ============
 function sleep(ms) {
     return new Promise(r => setTimeout(r, ms));
@@ -85,6 +77,6 @@ function emitRuntimeHint(force = false) {
 module.exports = {
     toLong, toNum, now,
     getServerTimeSec, syncServerTime, toTimeSec,
-    log, logWarn, sleep,
+    log, logWarn, logError, logDebug, sleep,
     emitRuntimeHint,
 };

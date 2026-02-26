@@ -148,7 +148,7 @@ function handleNotify(msg) {
 
         // 调试：显示所有推送类型
         if (DEBUG_NOTIFY) {
-            console.log(`[DEBUG] 收到推送: ${type}`);
+            log('DEBUG', `收到推送: ${type}`);
         }
 
         // 被踢下线
@@ -168,7 +168,7 @@ function handleNotify(msg) {
                 const hostGid = toNum(notify.host_gid);
                 const lands = notify.lands || [];
                 if (DEBUG_NOTIFY) {
-                    console.log(`[DEBUG] LandsNotify: hostGid=${hostGid}, myGid=${userState.gid}, lands=${lands.length}`);
+                    log('DEBUG', `LandsNotify: hostGid=${hostGid}, myGid=${userState.gid}, lands=${lands.length}`);
                 }
                 if (lands.length > 0) {
                     // 如果是自己的农场，触发事件
@@ -345,18 +345,11 @@ function sendLogin(onLoginSuccess, onLoginError) {
                     exp: userState.exp,
                 });
 
-                console.log('');
-                console.log('========== 登录成功 ==========');
-                console.log(`  GID:    ${userState.gid}`);
-                console.log(`  昵称:   ${userState.name}`);
-                console.log(`  等级:   ${userState.level}`);
-                console.log(`  金币:   ${userState.gold}`);
+                log('登录', `成功 GID=${userState.gid} 昵称=${userState.name} 等级=${userState.level} 金币=${userState.gold}`);
                 if (reply.time_now_millis) {
                     syncServerTime(toNum(reply.time_now_millis));
-                    console.log(`  时间:   ${new Date(toNum(reply.time_now_millis)).toLocaleString()}`);
+                    log('登录', `服务器时间: ${new Date(toNum(reply.time_now_millis)).toLocaleString()}`);
                 }
-                console.log('===============================');
-                console.log('');
             }
 
             startHeartbeat();
@@ -433,7 +426,7 @@ function connect(code, onLoginSuccess, onLoginError) {
     });
 
     ws.on('close', (code, reason) => {
-        console.log(`[WS] 连接关闭 (code=${code})`);
+        logWarn('WS', `连接关闭 (code=${code})`);
         cleanup();
     });
 

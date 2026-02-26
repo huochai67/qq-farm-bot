@@ -4,6 +4,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const { logWarn } = require('./logger');
 
 const CODE_FILE = path.join(__dirname, '..', '.farmcode');
 
@@ -15,7 +16,7 @@ function saveCode(code) {
     try {
         fs.writeFileSync(CODE_FILE, code, 'utf8');
     } catch (err) {
-        console.warn('[Code管理] 保存code失败:', err.message);
+        logWarn('Code管理', `保存code失败: ${err.message}`);
     }
 }
 
@@ -30,7 +31,7 @@ function loadCode() {
             return code || null;
         }
     } catch (err) {
-        console.warn('[Code管理] 读取code失败:', err.message);
+        logWarn('Code管理', `读取code失败: ${err.message}`);
     }
     return null;
 }
@@ -44,7 +45,7 @@ function deleteCode() {
             fs.unlinkSync(CODE_FILE);
         }
     } catch (err) {
-        console.warn('[Code管理] 删除code失败:', err.message);
+        logWarn('Code管理', `删除code失败: ${err.message}`);
     }
 }
 

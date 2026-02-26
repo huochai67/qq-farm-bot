@@ -5,6 +5,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const { log, logWarn } = require('./logger');
 
 // ============ 等级经验表 ============
 let roleLevelConfig = null;
@@ -34,10 +35,10 @@ function loadConfigs() {
             for (const item of roleLevelConfig) {
                 levelExpTable[item.level] = item.exp;
             }
-            console.log(`[配置] 已加载等级经验表 (${roleLevelConfig.length} 级)`);
+            log('配置', `已加载等级经验表 (${roleLevelConfig.length} 级)`);
         }
     } catch (e) {
-        console.warn('[配置] 加载 RoleLevel.json 失败:', e.message);
+        logWarn('配置', `加载 RoleLevel.json 失败: ${e.message}`);
     }
     
     // 加载植物配置
@@ -57,10 +58,10 @@ function loadConfigs() {
                     fruitToPlant.set(plant.fruit.id, plant);
                 }
             }
-            console.log(`[配置] 已加载植物配置 (${plantConfig.length} 种)`);
+            log('配置', `已加载植物配置 (${plantConfig.length} 种)`);
         }
     } catch (e) {
-        console.warn('[配置] 加载 Plant.json 失败:', e.message);
+        logWarn('配置', `加载 Plant.json 失败: ${e.message}`);
     }
 
     // 加载物品配置
@@ -74,10 +75,10 @@ function loadConfigs() {
                 const id = Number(item.id) || 0;
                 if (id > 0) itemInfoMap.set(id, item);
             }
-            console.log(`[配置] 已加载物品配置 (${itemInfoMap.size} 条)`);
+            log('配置', `已加载物品配置 (${itemInfoMap.size} 条)`);
         }
     } catch (e) {
-        console.warn('[配置] 加载 ItemInfo.json 失败:', e.message);
+        logWarn('配置', `加载 ItemInfo.json 失败: ${e.message}`);
     }
 }
 

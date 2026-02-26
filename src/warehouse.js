@@ -142,7 +142,6 @@ async function debugSellFruits() {
         emitRuntimeHint(false);
     } catch (e) {
         logWarn('仓库', `调试出售失败: ${e.message}`);
-        console.error(e);
     }
 }
 

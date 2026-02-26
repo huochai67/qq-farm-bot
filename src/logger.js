@@ -1,18 +1,15 @@
 /**
- * Console logger with daily file rotation.
- * Writes logs to logs/YYYY-MM-DD.log while keeping terminal output.
+ * Pino-based logger with daily file rotation and pretty console output.
+ *
+ * Console: colorized, short timestamp (HH:MM:ss)
+ * File:    plain text, full timestamp (yyyy-mm-dd HH:MM:ss), daily rotation
  */
 
+const pino = require('pino');
 const fs = require('fs');
 const path = require('path');
-const util = require('util');
 
 const LOG_DIR = path.join(process.cwd(), 'logs');
-
-let initialized = false;
-let currentDateKey = '';
-let stream = null;
-let disabled = false;
 
 function pad2(n) {
     return String(n).padStart(2, '0');
@@ -22,74 +19,62 @@ function getDateKey(d) {
     return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
 }
 
-function getDateTime(d) {
-    return `${getDateKey(d)} ${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`;
+// Ensure log directory exists
+try { fs.mkdirSync(LOG_DIR, { recursive: true }); } catch (_) { /* ignore */ }
+
+const logFile = path.join(LOG_DIR, `${getDateKey(new Date())}.log`);
+
+const logger = pino({
+    level: 'debug',
+    transport: {
+        targets: [
+            {
+                target: 'pino-pretty',
+                options: {
+                    colorize: true,
+                    translateTime: 'SYS:HH:MM:ss',
+                    ignore: 'pid,hostname,tag',
+                },
+                level: 'debug',
+            },
+            {
+                target: 'pino-pretty',
+                options: {
+                    colorize: false,
+                    translateTime: 'SYS:yyyy-mm-dd HH:MM:ss',
+                    ignore: 'pid,hostname,tag',
+                    destination: logFile,
+                    append: true,
+                    mkdir: true,
+                },
+                level: 'debug',
+            },
+        ],
+    },
+});
+
+// ============ Helper functions (backward-compatible API) ============
+
+function log(tag, msg) {
+    logger.info({ tag }, `[${tag}] ${msg}`);
 }
 
-function ensureStream() {
-    if (disabled) return;
-
-    const now = new Date();
-    const dateKey = getDateKey(now);
-    if (stream && dateKey === currentDateKey) return;
-
-    if (stream) {
-        stream.end();
-        stream = null;
-    }
-
-    try {
-        fs.mkdirSync(LOG_DIR, { recursive: true });
-        const file = path.join(LOG_DIR, `${dateKey}.log`);
-        stream = fs.createWriteStream(file, { flags: 'a', encoding: 'utf8' });
-        currentDateKey = dateKey;
-    } catch (err) {
-        disabled = true;
-        process.stderr.write(`[logger] 初始化日志文件失败: ${err.message}\n`);
-    }
+function logWarn(tag, msg) {
+    logger.warn({ tag }, `[${tag}] ⚠ ${msg}`);
 }
 
-function appendLine(level, args) {
-    ensureStream();
-    if (!stream || disabled) return;
-
-    const now = new Date();
-    const message = util.formatWithOptions({ colors: false, depth: null }, ...args);
-    const line = `[${getDateTime(now)}] [${level}] ${message}\n`;
-    stream.write(line);
+function logError(tag, msg) {
+    logger.error({ tag }, `[${tag}] ${msg}`);
 }
 
-function initFileLogger() {
-    if (initialized) return;
-    initialized = true;
-
-    const rawLog = console.log.bind(console);
-    const rawWarn = console.warn.bind(console);
-    const rawError = console.error.bind(console);
-
-    console.log = (...args) => {
-        rawLog(...args);
-        appendLine('INFO', args);
-    };
-
-    console.warn = (...args) => {
-        rawWarn(...args);
-        appendLine('WARN', args);
-    };
-
-    console.error = (...args) => {
-        rawError(...args);
-        appendLine('ERROR', args);
-    };
-
-    process.on('exit', () => {
-        if (stream) {
-            stream.end();
-            stream = null;
-        }
-    });
+function logDebug(tag, msg) {
+    logger.debug({ tag }, `[${tag}] ${msg}`);
 }
 
 module.exports = {
-    initFileLogger,
+    logger,
+    log,
+    logWarn,
+    logError,
+    logDebug,
 };

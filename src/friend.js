@@ -5,7 +5,7 @@
 const { CONFIG, PlantPhase, PHASE_NAMES } = require('./config');
 const { types } = require('./proto');
 const { sendMsgAsync, getUserState, networkEvents } = require('./network');
-const { toLong, toNum, getServerTimeSec, log, logWarn, sleep } = require('./utils');
+const { toLong, toNum, getServerTimeSec, log, logWarn, logDebug, sleep } = require('./utils');
 const { getCurrentPhase, setOperationLimitsCallback } = require('./farm');
 const { getPlantName } = require('./gameConfig');
 
@@ -310,13 +310,13 @@ function analyzeFriendLands(lands, myGid, friendName = '') {
         const showDebug = DEBUG_FRIEND_LANDS === true || DEBUG_FRIEND_LANDS === friendName;
 
         if (!plant || !plant.phases || plant.phases.length === 0) {
-            if (showDebug) console.log(`  [${friendName}] 土地#${id}: 无植物或无阶段数据`);
+            if (showDebug) logDebug('好友', `[${friendName}] 土地#${id}: 无植物或无阶段数据`);
             continue;
         }
 
         const currentPhase = getCurrentPhase(plant.phases, showDebug, `[${friendName}]土地#${id}`);
         if (!currentPhase) {
-            if (showDebug) console.log(`  [${friendName}] 土地#${id}: getCurrentPhase返回null`);
+            if (showDebug) logDebug('好友', `[${friendName}] 土地#${id}: getCurrentPhase返回null`);
             continue;
         }
         const phaseVal = currentPhase.phase;
@@ -324,7 +324,7 @@ function analyzeFriendLands(lands, myGid, friendName = '') {
         if (showDebug) {
             const insectOwners = plant.insect_owners || [];
             const weedOwners = plant.weed_owners || [];
-            console.log(`  [${friendName}] 土地#${id}: phase=${phaseVal} stealable=${plant.stealable} dry=${toNum(plant.dry_num)} weed=${weedOwners.length} bug=${insectOwners.length}`);
+            logDebug('好友', `[${friendName}] 土地#${id}: phase=${phaseVal} stealable=${plant.stealable} dry=${toNum(plant.dry_num)} weed=${weedOwners.length} bug=${insectOwners.length}`);
         }
 
         if (phaseVal === PlantPhase.MATURE) {
@@ -334,7 +334,7 @@ function analyzeFriendLands(lands, myGid, friendName = '') {
                 const plantName = getPlantName(plantId) || plant.name || '未知';
                 result.stealableInfo.push({ landId: id, plantId, name: plantName });
             } else if (showDebug) {
-                console.log(`  [${friendName}] 土地#${id}: 成熟但stealable=false (可能已被偷过)`);
+                logDebug('好友', `[${friendName}] 土地#${id}: 成熟但stealable=false (可能已被偷过)`);
             }
             continue;
         }
@@ -371,7 +371,7 @@ async function visitFriend(friend, totalActions, myGid) {
     const showDebug = DEBUG_FRIEND_LANDS === true || DEBUG_FRIEND_LANDS === name;
 
     if (showDebug) {
-        console.log(`\n========== 调试: 进入好友 [${name}] 农场 ==========`);
+        logDebug('好友', `========== 调试: 进入好友 [${name}] 农场 ==========`);
     }
 
     let enterReply;
@@ -384,7 +384,7 @@ async function visitFriend(friend, totalActions, myGid) {
 
     const lands = enterReply.lands || [];
     if (showDebug) {
-        console.log(`  [${name}] 获取到 ${lands.length} 块土地`);
+        logDebug('好友', `[${name}] 获取到 ${lands.length} 块土地`);
     }
     if (lands.length === 0) {
         await leaveFriendFarm(gid);
@@ -394,8 +394,8 @@ async function visitFriend(friend, totalActions, myGid) {
     const status = analyzeFriendLands(lands, myGid, name);
     
     if (showDebug) {
-        console.log(`  [${name}] 分析结果: 可偷=${status.stealable.length} 浇水=${status.needWater.length} 除草=${status.needWeed.length} 除虫=${status.needBug.length}`);
-        console.log(`========== 调试结束 ==========\n`);
+        logDebug('好友', `[${name}] 分析结果: 可偷=${status.stealable.length} 浇水=${status.needWater.length} 除草=${status.needWeed.length} 除虫=${status.needBug.length}`);
+        logDebug('好友', '========== 调试结束 ==========');
     }
 
     // 执行操作
@@ -542,7 +542,7 @@ async function checkFriends() {
             // 调试：显示指定好友的预览信息
             const showDebug = DEBUG_FRIEND_LANDS === true || DEBUG_FRIEND_LANDS === name;
             if (showDebug) {
-                console.log(`[调试] 好友列表预览 [${name}]: steal=${stealNum} dry=${dryNum} weed=${weedNum} insect=${insectNum}`);
+                logDebug('好友', `好友列表预览 [${name}]: steal=${stealNum} dry=${dryNum} weed=${weedNum} insect=${insectNum}`);
             }
 
             if (hasSteal) {
@@ -560,7 +560,7 @@ async function checkFriends() {
             }
 
             if (showDebug && visitedGids.has(gid)) {
-                console.log(`[调试] 好友 [${name}] 加入列表 (位置: ${priorityFriends.length})`);
+                logDebug('好友', `好友 [${name}] 加入列表 (位置: ${priorityFriends.length})`);
             }
         }
         
@@ -572,9 +572,9 @@ async function checkFriends() {
             const idx = friendsToVisit.findIndex(f => f.name === DEBUG_FRIEND_LANDS);
             if (idx >= 0) {
                 const inPriority = idx < priorityFriends.length;
-                console.log(`[调试] 好友 [${DEBUG_FRIEND_LANDS}] 位置: ${idx + 1}/${friendsToVisit.length} (${inPriority ? '优先列表' : '其他列表'})`);
+                logDebug('好友', `好友 [${DEBUG_FRIEND_LANDS}] 位置: ${idx + 1}/${friendsToVisit.length} (${inPriority ? '优先列表' : '其他列表'})`);
             } else {
-                console.log(`[调试] 好友 [${DEBUG_FRIEND_LANDS}] 不在待访问列表中!`);
+                logDebug('好友', `好友 [${DEBUG_FRIEND_LANDS}] 不在待访问列表中!`);
             }
         }
 
@@ -588,13 +588,13 @@ async function checkFriends() {
             const friend = friendsToVisit[i];
             const showDebug = DEBUG_FRIEND_LANDS === true || DEBUG_FRIEND_LANDS === friend.name;
             if (showDebug) {
-                console.log(`[调试] 准备访问 [${friend.name}] (${i + 1}/${friendsToVisit.length})`);
+                logDebug('好友', `准备访问 [${friend.name}] (${i + 1}/${friendsToVisit.length})`);
             }
             try { 
                 await visitFriend(friend, totalActions, state.gid); 
             } catch (e) { 
                 if (showDebug) {
-                    console.log(`[调试] 访问 [${friend.name}] 出错: ${e.message}`);
+                    logDebug('好友', `访问 [${friend.name}] 出错: ${e.message}`);
                 }
             }
             await sleep(500);

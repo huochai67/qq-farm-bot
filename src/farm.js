@@ -6,7 +6,7 @@ const protobuf = require('protobufjs');
 const { CONFIG, PlantPhase, PHASE_NAMES } = require('./config');
 const { types } = require('./proto');
 const { sendMsgAsync, getUserState, networkEvents } = require('./network');
-const { toLong, toNum, getServerTimeSec, toTimeSec, log, logWarn, sleep } = require('./utils');
+const { toLong, toNum, getServerTimeSec, toTimeSec, log, logWarn, logDebug, sleep } = require('./utils');
 const { getPlantNameBySeedId, getPlantName, getPlantExp, formatGrowTime, getPlantGrowTime, getItemName } = require('./gameConfig');
 const { getPlantingRecommendation } = require('../tools/calc-exp-yield');
 
@@ -346,14 +346,14 @@ function getCurrentPhase(phases, debug, landLabel) {
     const nowSec = getServerTimeSec();
 
     if (debug) {
-        console.log(`    ${landLabel} 服务器时间=${nowSec} (${new Date(nowSec * 1000).toLocaleTimeString()})`);
+        logDebug('巡田', `${landLabel} 服务器时间=${nowSec} (${new Date(nowSec * 1000).toLocaleTimeString()})`);
         for (let i = 0; i < phases.length; i++) {
             const p = phases[i];
             const bt = toTimeSec(p.begin_time);
             const phaseName = PHASE_NAMES[p.phase] || `阶段${p.phase}`;
             const diff = bt > 0 ? (bt - nowSec) : 0;
             const diffStr = diff > 0 ? `(未来 ${diff}s)` : diff < 0 ? `(已过 ${-diff}s)` : '';
-            console.log(`    ${landLabel}   [${i}] ${phaseName}(${p.phase}) begin=${bt} ${diffStr} dry=${toTimeSec(p.dry_time)} weed=${toTimeSec(p.weeds_time)} insect=${toTimeSec(p.insect_time)}`);
+            logDebug('巡田', `${landLabel}   [${i}] ${phaseName}(${p.phase}) begin=${bt} ${diffStr} dry=${toTimeSec(p.dry_time)} weed=${toTimeSec(p.weeds_time)} insect=${toTimeSec(p.insect_time)}`);
         }
     }
 
@@ -361,14 +361,14 @@ function getCurrentPhase(phases, debug, landLabel) {
         const beginTime = toTimeSec(phases[i].begin_time);
         if (beginTime > 0 && beginTime <= nowSec) {
             if (debug) {
-                console.log(`    ${landLabel}   → 当前阶段: ${PHASE_NAMES[phases[i].phase] || phases[i].phase}`);
+                logDebug('巡田', `${landLabel}   → 当前阶段: ${PHASE_NAMES[phases[i].phase] || phases[i].phase}`);
             }
             return phases[i];
         }
     }
 
     if (debug) {
-        console.log(`    ${landLabel}   → 所有阶段都在未来，使用第一个: ${PHASE_NAMES[phases[0].phase] || phases[0].phase}`);
+        logDebug('巡田', `${landLabel}   → 所有阶段都在未来，使用第一个: ${PHASE_NAMES[phases[0].phase] || phases[0].phase}`);
     }
     return phases[0];
 }
@@ -384,24 +384,22 @@ function analyzeLands(lands) {
     const debug = false;
 
     if (debug) {
-        console.log('');
-        console.log('========== 首次巡田详细日志 ==========');
-        console.log(`  服务器时间(秒): ${nowSec}  (${new Date(nowSec * 1000).toLocaleString()})`);
-        console.log(`  总土地数: ${lands.length}`);
-        console.log('');
+        logDebug('巡田', '========== 首次巡田详细日志 ==========');
+        logDebug('巡田', `服务器时间(秒): ${nowSec}  (${new Date(nowSec * 1000).toLocaleString()})`);
+        logDebug('巡田', `总土地数: ${lands.length}`);
     }
 
     for (const land of lands) {
         const id = toNum(land.id);
         if (!land.unlocked) {
-            if (debug) console.log(`  土地#${id}: 未解锁`);
+            if (debug) logDebug('巡田', `土地#${id}: 未解锁`);
             continue;
         }
 
         const plant = land.plant;
         if (!plant || !plant.phases || plant.phases.length === 0) {
             result.empty.push(id);
-            if (debug) console.log(`  土地#${id}: 空地`);
+            if (debug) logDebug('巡田', `土地#${id}: 空地`);
             continue;
         }
 
@@ -409,7 +407,7 @@ function analyzeLands(lands) {
         const landLabel = `土地#${id}(${plantName})`;
 
         if (debug) {
-            console.log(`  ${landLabel}: phases=${plant.phases.length} dry_num=${toNum(plant.dry_num)} weed_owners=${(plant.weed_owners || []).length} insect_owners=${(plant.insect_owners || []).length}`);
+            logDebug('巡田', `${landLabel}: phases=${plant.phases.length} dry_num=${toNum(plant.dry_num)} weed_owners=${(plant.weed_owners || []).length} insect_owners=${(plant.insect_owners || []).length}`);
         }
 
         const currentPhase = getCurrentPhase(plant.phases, debug, landLabel);
@@ -421,7 +419,7 @@ function analyzeLands(lands) {
 
         if (phaseVal === PlantPhase.DEAD) {
             result.dead.push(id);
-            if (debug) console.log(`    → 结果: 枯死`);
+            if (debug) logDebug('巡田', `→ 结果: 枯死`);
             continue;
         }
 
@@ -437,7 +435,7 @@ function analyzeLands(lands) {
                 name: plantNameFromConfig || plantName,
                 exp: plantExp,
             });
-            if (debug) console.log(`    → 结果: 可收获 (${plantNameFromConfig} +${plantExp}经验)`);
+            if (debug) logDebug('巡田', `→ 结果: 可收获 (${plantNameFromConfig} +${plantExp}经验)`);
             continue;
         }
 
@@ -466,22 +464,20 @@ function analyzeLands(lands) {
         result.growing.push(id);
         if (debug) {
             const needStr = landNeeds.length > 0 ? ` 需要: ${landNeeds.join(',')}` : '';
-            console.log(`    → 结果: 生长中(${PHASE_NAMES[phaseVal] || phaseVal})${needStr}`);
+            logDebug('巡田', `→ 结果: 生长中(${PHASE_NAMES[phaseVal] || phaseVal})${needStr}`);
         }
     }
 
     if (debug) {
-        console.log('');
-        console.log('========== 巡田分析汇总 ==========');
-        console.log(`  可收获: ${result.harvestable.length} [${result.harvestable.join(',')}]`);
-        console.log(`  生长中: ${result.growing.length} [${result.growing.join(',')}]`);
-        console.log(`  缺水:   ${result.needWater.length} [${result.needWater.join(',')}]`);
-        console.log(`  有草:   ${result.needWeed.length} [${result.needWeed.join(',')}]`);
-        console.log(`  有虫:   ${result.needBug.length} [${result.needBug.join(',')}]`);
-        console.log(`  空地:   ${result.empty.length} [${result.empty.join(',')}]`);
-        console.log(`  枯死:   ${result.dead.length} [${result.dead.join(',')}]`);
-        console.log('====================================');
-        console.log('');
+        logDebug('巡田', '========== 巡田分析汇总 ==========');
+        logDebug('巡田', `可收获: ${result.harvestable.length} [${result.harvestable.join(',')}]`);
+        logDebug('巡田', `生长中: ${result.growing.length} [${result.growing.join(',')}]`);
+        logDebug('巡田', `缺水:   ${result.needWater.length} [${result.needWater.join(',')}]`);
+        logDebug('巡田', `有草:   ${result.needWeed.length} [${result.needWeed.join(',')}]`);
+        logDebug('巡田', `有虫:   ${result.needBug.length} [${result.needBug.join(',')}]`);
+        logDebug('巡田', `空地:   ${result.empty.length} [${result.empty.join(',')}]`);
+        logDebug('巡田', `枯死:   ${result.dead.length} [${result.dead.join(',')}]`);
+        logDebug('巡田', '====================================');
     }
 
     return result;

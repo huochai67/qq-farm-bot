@@ -22,16 +22,14 @@ const { initStatusBar, cleanupStatusBar, setStatusPlatform } = require('./src/st
 const { startSellLoop, stopSellLoop, debugSellFruits } = require('./src/warehouse');
 const { processInviteCodes } = require('./src/invite');
 const { verifyMode, decodeMode } = require('./src/decode');
-const { emitRuntimeHint, sleep } = require('./src/utils');
+const { emitRuntimeHint, sleep, log, logWarn, logError } = require('./src/utils');
 const { getQQFarmCodeByScan } = require('./src/qqQrLogin');
-const { initFileLogger } = require('./src/logger');
+const { logger } = require('./src/logger');
 const { saveCode, loadCode, deleteCode } = require('./src/codeManager');
-
-initFileLogger();
 
 // ============ 帮助信息 ============
 function showHelp() {
-    console.log(`
+    logger.info(`
 QQ经典农场 挂机脚本
 ====================
 
@@ -201,7 +199,7 @@ async function main() {
     if (!options.code && CONFIG.platform === 'qq') {
         const savedCode = loadCode();
         if (savedCode) {
-            console.log('[Code管理] 检测到已保存的code，将优先尝试使用旧code登录');
+            log('Code管理', '检测到已保存的code，将优先尝试使用旧code登录');
             options.code = savedCode;
             options.useSavedCode = true;
         }
@@ -209,23 +207,23 @@ async function main() {
 
     // 如果仍然没有 code，尝试使用扫码登录
     if (!options.code && CONFIG.platform === 'qq' && (options.qrLogin || !args.includes('--code'))) {
-        console.log('[扫码登录] 正在获取二维码...');
+        log('扫码登录', '正在获取二维码...');
         options.code = await getQQFarmCodeByScan();
         usedQrLogin = true;
-        console.log(`[扫码登录] 获取成功，code=${options.code.substring(0, 8)}...`);
+        log('扫码登录', `获取成功，code=${options.code.substring(0, 8)}...`);
         // 保存新扫描得到的 code
         saveCode(options.code);
     }
 
     if (!options.code) {
         if (CONFIG.platform === 'wx') {
-            console.log('[参数] 微信模式仍需通过 --code 传入登录凭证');
+            log('参数', '微信模式仍需通过 --code 传入登录凭证');
         }
         showHelp();
         process.exit(1);
     }
     if (options.deleteAccountMode && (!options.name || !options.certId)) {
-        console.log('[参数] 注销账号模式必须提供 --name 和 --cert-id');
+        log('参数', '注销账号模式必须提供 --name 和 --cert-id');
         showHelp();
         process.exit(1);
     }
@@ -241,7 +239,7 @@ async function main() {
     emitRuntimeHint(true);
 
     const platformName = CONFIG.platform === 'wx' ? '微信' : 'QQ';
-    console.log(`[启动] ${platformName} code=${options.code.substring(0, 8)}... 农场${CONFIG.farmCheckInterval / 1000}s 好友${CONFIG.friendCheckInterval / 1000}s`);
+    log('启动', `${platformName} code=${options.code.substring(0, 8)}... 农场${CONFIG.farmCheckInterval / 1000}s 好友${CONFIG.friendCheckInterval / 1000}s`);
 
     // 连接并登录，登录成功后启动各功能模块
     let loginAttemptCount = 0;
@@ -269,21 +267,21 @@ async function main() {
 
     const onLoginError = async (err) => {
         loginAttemptCount++;
-        console.log(`[登录] 失败: ${err.message}`);
+        logWarn('登录', `失败: ${err.message}`);
 
         // 如果是使用旧 code 登录失败，删除旧 code 并重新扫码
         if (options.useSavedCode && loginAttemptCount === 1) {
-            console.log('[Code管理] 旧code已失效，正在删除...');
+            log('Code管理', '旧code已失效，正在删除...');
             deleteCode();
 
             // 等待一下之前的连接完全关闭
             await sleep(1000);
 
             if (CONFIG.platform === 'qq') {
-                console.log('[扫码登录] 正在重新获取二维码...');
+                log('扫码登录', '正在重新获取二维码...');
                 try {
                     options.code = await getQQFarmCodeByScan();
-                    console.log(`[扫码登录] 获取成功，code=${options.code.substring(0, 8)}...`);
+                    log('扫码登录', `获取成功，code=${options.code.substring(0, 8)}...`);
                     saveCode(options.code);
                     options.useSavedCode = false;
 
@@ -293,16 +291,16 @@ async function main() {
                     }
 
                     // 重新连接
-                    console.log('[启动] QQ code=' + options.code.substring(0, 8) + '... 农场' + CONFIG.farmCheckInterval / 1000 + 's 好友' + CONFIG.friendCheckInterval / 1000 + 's');
+                    log('启动', 'QQ code=' + options.code.substring(0, 8) + '... 农场' + CONFIG.farmCheckInterval / 1000 + 's 好友' + CONFIG.friendCheckInterval / 1000 + 's');
                     connect(options.code, onLoginSuccess, onLoginError);
                 } catch (scanErr) {
-                    console.error('[扫码登录] 失败:', scanErr.message);
+                    logError('扫码登录', `失败: ${scanErr.message}`);
                     process.exit(1);
                 }
             }
         } else {
             // 其他原因导致的登录失败，直接退出
-            console.log('[登录] 无法恢复，退出程序');
+            logError('登录', '无法恢复，退出程序');
             process.exit(1);
         }
     };
@@ -312,7 +310,7 @@ async function main() {
     // 退出处理
     process.on('SIGINT', () => {
         cleanupStatusBar();
-        console.log('\n[退出] 正在断开...');
+        log('退出', '正在断开...');
         stopFarmCheckLoop();
         stopFriendCheckLoop();
         cleanupTaskSystem();
@@ -325,6 +323,6 @@ async function main() {
 }
 
 main().catch(err => {
-    console.error('启动失败:', err);
+    logError('启动', `失败: ${err.message}`);
     process.exit(1);
 });
