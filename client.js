@@ -250,14 +250,18 @@ async function main() {
         if (options.useSavedCode) {
             // 旧 code 仍然有效，保留即可
         }
-        
+
         // 处理邀请码 (仅微信环境)
         await processInviteCodes();
-        
+
         startFarmCheckLoop();
-        startFriendCheckLoop();
+
+        // 判定是否启动好友巡查
+        if (CONFIG.farmCheckInterval > 0) {
+            startFriendCheckLoop();
+        }
         initTaskSystem();
-        
+
         // 启动时立即检查一次背包
         setTimeout(() => debugSellFruits(), 5000);
         startSellLoop(60000);  // 每分钟自动出售仓库果实
@@ -266,15 +270,15 @@ async function main() {
     const onLoginError = async (err) => {
         loginAttemptCount++;
         console.log(`[登录] 失败: ${err.message}`);
-        
+
         // 如果是使用旧 code 登录失败，删除旧 code 并重新扫码
         if (options.useSavedCode && loginAttemptCount === 1) {
             console.log('[Code管理] 旧code已失效，正在删除...');
             deleteCode();
-            
+
             // 等待一下之前的连接完全关闭
             await sleep(1000);
-            
+
             if (CONFIG.platform === 'qq') {
                 console.log('[扫码登录] 正在重新获取二维码...');
                 try {
@@ -282,12 +286,12 @@ async function main() {
                     console.log(`[扫码登录] 获取成功，code=${options.code.substring(0, 8)}...`);
                     saveCode(options.code);
                     options.useSavedCode = false;
-                    
+
                     // 清屏
                     if (process.stdout.isTTY) {
                         process.stdout.write('\x1b[2J\x1b[H');
                     }
-                    
+
                     // 重新连接
                     console.log('[启动] QQ code=' + options.code.substring(0, 8) + '... 农场' + CONFIG.farmCheckInterval / 1000 + 's 好友' + CONFIG.friendCheckInterval / 1000 + 's');
                     connect(options.code, onLoginSuccess, onLoginError);
