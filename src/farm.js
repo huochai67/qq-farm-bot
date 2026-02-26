@@ -226,6 +226,10 @@ async function findBestSeed(landsCount) {
             rankedSeedIds = rec.candidatesNoFert.map(x => x.seedId);
         }
 
+        if (rankedSeedIds.length > 1 && CONFIG.disableRadish) {
+            rankedSeedIds = rankedSeedIds.filter(x => x !== 20002)
+        }
+
         for (const seedId of rankedSeedIds) {
             const hit = available.find(x => x.seedId === seedId);
             if (hit) return hit;
