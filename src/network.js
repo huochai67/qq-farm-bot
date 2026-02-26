@@ -428,6 +428,7 @@ function connect(code, onLoginSuccess, onLoginError) {
     ws.on('close', (code, reason) => {
         logWarn('WS', `连接关闭 (code=${code})`);
         cleanup();
+        networkEvents.emit('disconnected', code);
     });
 
     ws.on('error', (err) => {

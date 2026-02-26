@@ -14,7 +14,7 @@
 
 const { CONFIG } = require('./src/config');
 const { loadProto } = require('./src/proto');
-const { connect, cleanup, getWs } = require('./src/network');
+const { connect, cleanup, getWs, networkEvents } = require('./src/network');
 const { startFarmCheckLoop, stopFarmCheckLoop } = require('./src/farm');
 const { startFriendCheckLoop, stopFriendCheckLoop } = require('./src/friend');
 const { initTaskSystem, cleanupTaskSystem } = require('./src/task');
@@ -171,31 +171,82 @@ function parseArgs(argsMap) {
     return options;
 }
 
+// ============ 常量 ============
+const INITIAL_SELL_DELAY_MS = 5000;
+const SELL_LOOP_INTERVAL_MS = 60000;
+const RECONNECT_DELAY_MS = 1000;
+
+// ============ 辅助函数 ============
+
+/** 安全截取 code 前缀用于日志展示，避免 undefined/非字符串导致异常 */
+function codePreview(code) {
+    if (typeof code !== 'string' || code.length === 0) return '(empty)';
+    return code.substring(0, 8) + '...';
+}
+
+/** 格式化启动日志 */
+function formatStartupLog(code) {
+    const platformName = CONFIG.platform === 'wx' ? '微信' : 'QQ';
+    const farmSec = CONFIG.farmCheckInterval / 1000;
+    const friendSec = CONFIG.friendCheckInterval / 1000;
+    return `${platformName} code=${codePreview(code)} 农场${farmSec}s 好友${friendSec}s`;
+}
+
+/** 清屏（仅在 TTY 终端下生效） */
+function clearScreen() {
+    if (process.stdout.isTTY) {
+        process.stdout.write('\x1b[2J\x1b[H');
+    }
+}
+
+/** 统一执行所有模块的清理与停止操作 */
+function shutdownAllModules() {
+    cleanupStatusBar();
+    stopFarmCheckLoop();
+    stopFriendCheckLoop();
+    cleanupTaskSystem();
+    stopSellLoop();
+    cleanup();
+}
+
+/**
+ * 通过扫码获取 code 并保存，返回获取到的 code
+ * @param {string} context - 日志上下文描述（如 '正在获取二维码' / '正在重新获取二维码'）
+ * @returns {Promise<string>}
+ */
+async function acquireCodeByQrScan(context) {
+    log('扫码登录', `${context}...`);
+    const code = await getQQFarmCodeByScan();
+    log('扫码登录', `获取成功，code=${codePreview(code)}`);
+    saveCode(code);
+    return code;
+}
+
 // ============ 主函数 ============
 async function main() {
     const args = process.argv.slice(2);
-    let usedQrLogin = false;
 
     // 加载 proto 定义
     await loadProto();
 
-    // 验证模式
+    // 验证模式 (提前退出)
     if (args.includes('--verify')) {
         await verifyMode();
         return;
     }
 
-    // 解码模式
+    // 解码模式 (提前退出)
     if (args.includes('--decode')) {
         await decodeMode(args);
         return;
     }
 
-    // 正常挂机模式
+    // 正常挂机模式 — 解析参数
     const argsMap = getArgsMap(args);
     const options = parseArgs(argsMap);
+    let usedQrLogin = false;
 
-    // 尝试使用已保存的 code，如果没有传入 --code 参数
+    // 尝试使用已保存的 code（仅当未通过 --code 传入时）
     if (!options.code && CONFIG.platform === 'qq') {
         const savedCode = loadCode();
         if (savedCode) {
@@ -205,16 +256,13 @@ async function main() {
         }
     }
 
-    // 如果仍然没有 code，尝试使用扫码登录
+    // 如果仍然没有 code，尝试扫码登录
     if (!options.code && CONFIG.platform === 'qq' && (options.qrLogin || !args.includes('--code'))) {
-        log('扫码登录', '正在获取二维码...');
-        options.code = await getQQFarmCodeByScan();
+        options.code = await acquireCodeByQrScan('正在获取二维码');
         usedQrLogin = true;
-        log('扫码登录', `获取成功，code=${options.code.substring(0, 8)}...`);
-        // 保存新扫描得到的 code
-        saveCode(options.code);
     }
 
+    // 参数校验
     if (!options.code) {
         if (CONFIG.platform === 'wx') {
             log('参数', '微信模式仍需通过 --code 传入登录凭证');
@@ -229,8 +277,8 @@ async function main() {
     }
 
     // 扫码阶段结束后清屏，避免状态栏覆盖二维码区域导致界面混乱
-    if (usedQrLogin && process.stdout.isTTY) {
-        process.stdout.write('\x1b[2J\x1b[H');
+    if (usedQrLogin) {
+        clearScreen();
     }
 
     // 初始化状态栏
@@ -238,17 +286,20 @@ async function main() {
     setStatusPlatform(CONFIG.platform);
     emitRuntimeHint(true);
 
-    const platformName = CONFIG.platform === 'wx' ? '微信' : 'QQ';
-    log('启动', `${platformName} code=${options.code.substring(0, 8)}... 农场${CONFIG.farmCheckInterval / 1000}s 好友${CONFIG.friendCheckInterval / 1000}s`);
+    log('启动', formatStartupLog(options.code));
 
     // 连接并登录，登录成功后启动各功能模块
     let loginAttemptCount = 0;
-    const onLoginSuccess = async () => {
-        // 登录成功，保存 code
-        if (options.useSavedCode) {
-            // 旧 code 仍然有效，保留即可
-        }
 
+    const close = () => {
+        shutdownAllModules();
+        log('退出', '正在断开...');
+        const ws = getWs();
+        if (ws) ws.close();
+        process.exit(0);
+    }
+
+    const onLoginSuccess = async () => {
         // 处理邀请码 (仅微信环境)
         await processInviteCodes();
 
@@ -258,71 +309,45 @@ async function main() {
         if (CONFIG.farmCheckInterval > 0) {
             startFriendCheckLoop();
         }
+
         initTaskSystem();
 
-        // 启动时立即检查一次背包
-        setTimeout(() => debugSellFruits(), 5000);
-        startSellLoop(60000);  // 每分钟自动出售仓库果实
+        // 启动时延迟检查一次背包，随后按固定间隔出售仓库果实
+        setTimeout(debugSellFruits, INITIAL_SELL_DELAY_MS);
+        startSellLoop(SELL_LOOP_INTERVAL_MS);
     };
 
     const onLoginError = async (err) => {
         loginAttemptCount++;
         logWarn('登录', `失败: ${err.message}`);
 
-        // 如果是使用旧 code 登录失败，删除旧 code 并重新扫码
-        if (options.useSavedCode && loginAttemptCount === 1) {
-            log('Code管理', '旧code已失效，正在删除...');
-            deleteCode();
+        // 仅在首次使用旧 code 登录失败时尝试重新扫码
+        const canRetryWithQr = options.useSavedCode
+            && loginAttemptCount === 1
+            && CONFIG.platform === 'qq';
 
-            // 等待一下之前的连接完全关闭
-            await sleep(1000);
-
-            if (CONFIG.platform === 'qq') {
-                log('扫码登录', '正在重新获取二维码...');
-                try {
-                    options.code = await getQQFarmCodeByScan();
-                    log('扫码登录', `获取成功，code=${options.code.substring(0, 8)}...`);
-                    saveCode(options.code);
-                    options.useSavedCode = false;
-
-                    // 清屏
-                    if (process.stdout.isTTY) {
-                        process.stdout.write('\x1b[2J\x1b[H');
-                    }
-
-                    // 重新连接
-                    log('启动', 'QQ code=' + options.code.substring(0, 8) + '... 农场' + CONFIG.farmCheckInterval / 1000 + 's 好友' + CONFIG.friendCheckInterval / 1000 + 's');
-                    connect(options.code, onLoginSuccess, onLoginError);
-                } catch (scanErr) {
-                    logError('扫码登录', `失败: ${scanErr.message}`);
-                    process.exit(1);
-                }
-            }
-        } else {
-            // 其他原因导致的登录失败，直接退出
+        if (!canRetryWithQr) {
             logError('登录', '无法恢复，退出程序');
             process.exit(1);
         }
+
+        log('Code管理', '旧code已失效，正在删除...');
+        close()
     };
 
     connect(options.code, onLoginSuccess, onLoginError);
 
-    // 退出处理
-    process.on('SIGINT', () => {
-        cleanupStatusBar();
-        log('退出', '正在断开...');
-        stopFarmCheckLoop();
-        stopFriendCheckLoop();
-        cleanupTaskSystem();
-        stopSellLoop();
-        cleanup();
-        const ws = getWs();
-        if (ws) ws.close();
-        process.exit(0);
+    // 断开连接后退出程序
+    networkEvents.once('disconnected', (code) => {
+        log('退出', `连接已断开 (code=${code})`);
+        close()
     });
+
+    // 优雅退出处理
+    process.on('SIGINT', close);
 }
 
 main().catch(err => {
-    logError('启动', `失败: ${err.message}`);
+    logError('启动', `失败: ${err?.message ?? err}`);
     process.exit(1);
 });
