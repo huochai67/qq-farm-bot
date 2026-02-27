@@ -289,7 +289,6 @@ async function main() {
     log('启动', formatStartupLog(options.code));
 
     // 连接并登录，登录成功后启动各功能模块
-    let loginAttemptCount = 0;
 
     const close = () => {
         shutdownAllModules();
@@ -318,20 +317,10 @@ async function main() {
     };
 
     const onLoginError = async (err) => {
-        loginAttemptCount++;
         logWarn('登录', `失败: ${err.message}`);
 
-        // 仅在首次使用旧 code 登录失败时尝试重新扫码
-        const canRetryWithQr = options.useSavedCode
-            && loginAttemptCount === 1
-            && CONFIG.platform === 'qq';
-
-        if (!canRetryWithQr) {
-            logError('登录', '无法恢复，退出程序');
-            process.exit(1);
-        }
-
         log('Code管理', '旧code已失效，正在删除...');
+        deleteCode();
         close()
     };
 
